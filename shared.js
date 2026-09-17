@@ -177,6 +177,15 @@ class ColumnFilterManager {
                     if (isNaN(val)) return false;
                     if (filter.min !== null && val < filter.min) return false;
                     if (filter.max !== null && val > filter.max) return false;
+                } else if (filter.type === 'date') {
+                    // Cell text is expected to start with an ISO date ("2026-09-17" or
+                    // "2026-09-17T20:07:11+00:00") -- comparing just the first 10 chars
+                    // as strings sorts correctly with no Date parsing, same way the rest
+                    // of this file leans on ISO 8601's own lexicographic ordering.
+                    const val = String(data[parseInt(colIndex)]).slice(0, 10);
+                    if (!val) return false;
+                    if (filter.from && val < filter.from) return false;
+                    if (filter.to && val > filter.to) return false;
                 }
             }
             return true;
@@ -239,6 +248,7 @@ class ColumnFilterManager {
     _openFilterDialog(col, colIndex) {
         if (col.type === 'multiselect') this._openMultiselectDialog(col, colIndex);
         else if (col.type === 'range') this._openRangeDialog(col, colIndex);
+        else if (col.type === 'date') this._openDateDialog(col, colIndex);
         else this._openTextDialog(col, colIndex);
     }
 
@@ -409,6 +419,56 @@ class ColumnFilterManager {
         });
     }
 
+    _openDateDialog(col, colIndex) {
+        const self = this;
+        const cur = this.activeFilters[colIndex] || {};
+
+        const content = `
+            <div class="filter-popover">
+                <div class="filter-title">Filter: ${escapeHtml(col.name)}</div>
+                <div class="mb-2">
+                    <label class="form-label small">From</label>
+                    <input type="date" class="form-control form-control-sm filter-date-from" value="${escapeHtml(cur.from || '')}">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">To</label>
+                    <input type="date" class="form-control form-control-sm filter-date-to" value="${escapeHtml(cur.to || '')}">
+                </div>
+                <div class="d-flex gap-2 justify-content-end mt-3">
+                    <button class="btn btn-sm btn-outline-secondary btn-filter-clear">Clear</button>
+                    <button class="btn btn-sm btn-primary btn-filter-apply">Apply</button>
+                </div>
+            </div>
+        `;
+
+        const modal = createModal({ content });
+        const $popover = $(modal).find('.filter-popover');
+        $popover.find('.filter-date-from').focus();
+
+        $popover.find('.btn-filter-clear').on('click', () => {
+            delete self.activeFilters[colIndex];
+            self.table.draw();
+            self._updateFilterBar();
+            if (self.syncURL) self._updateURL();
+            closeModal(modal);
+        });
+
+        $popover.find('.btn-filter-apply').on('click', () => {
+            const from = $popover.find('.filter-date-from').val().trim();
+            const to = $popover.find('.filter-date-to').val().trim();
+            if (from || to) {
+                self.activeFilters[colIndex] = { type: 'date', from: from || null, to: to || null, name: col.name };
+                self.table.draw();
+            } else {
+                delete self.activeFilters[colIndex];
+                self.table.draw();
+            }
+            self._updateFilterBar();
+            if (self.syncURL) self._updateURL();
+            closeModal(modal);
+        });
+    }
+
     _updateFilterBar() {
         if (!this.filterBarId) return;
         const filterBar = document.getElementById(this.filterBarId);
@@ -439,6 +499,11 @@ class ColumnFilterManager {
                     if (filter.min !== null) parts.push(`≥ ${filter.min.toLocaleString()}`);
                     if (filter.max !== null) parts.push(`≤ ${filter.max.toLocaleString()}`);
                     displayValue = parts.join(' and ');
+                } else if (filter.type === 'date') {
+                    const parts = [];
+                    if (filter.from) parts.push(`from ${filter.from}`);
+                    if (filter.to) parts.push(`to ${filter.to}`);
+                    displayValue = parts.join(' ');
                 } else {
                     displayValue = filter.value;
                 }
@@ -497,6 +562,9 @@ class ColumnFilterManager {
             const paramKey = filter.name.toLowerCase().replace(/[^a-z0-9]+/g, '_');
             if (filter.type === 'multiselect') url.searchParams.set(paramKey, filter.values.join(','));
             else if (filter.type === 'range') url.searchParams.set(paramKey, `${filter.min ?? ''}-${filter.max ?? ''}`);
+            // ".." rather than range's "-": an ISO date already contains hyphens
+            // ("2026-09-10-2026-09-17" can't be split back into two dates unambiguously).
+            else if (filter.type === 'date') url.searchParams.set(paramKey, `${filter.from ?? ''}..${filter.to ?? ''}`);
             else url.searchParams.set(paramKey, filter.value);
         });
 
@@ -510,7 +578,7 @@ class ColumnFilterManager {
             this.activeFilters[idx] = filter;
             if (filter.type === 'multiselect')
                 this.table.column(idx).search(filter.values.map(v => escapeRegex(v)).join('|'), true, false);
-            else if (filter.type !== 'range')
+            else if (filter.type !== 'range' && filter.type !== 'date')
                 this.table.column(idx).search(filter.value);
         });
         this._updateFilterBar();
@@ -547,6 +615,12 @@ class ColumnFilterManager {
                 const max = parts[1] ? parseFloat(parts[1]) : null;
                 if (min !== null || max !== null)
                     this.activeFilters[col.index] = { type: 'range', min, max, name: col.name };
+            } else if (col.type === 'date') {
+                const parts = value.split('..');
+                const from = parts[0] || null;
+                const to = parts[1] || null;
+                if (from || to)
+                    this.activeFilters[col.index] = { type: 'date', from, to, name: col.name };
             } else if (value) {
                 this.activeFilters[col.index] = { type: 'text', value, name: col.name };
                 this.table.column(col.index).search(value);
