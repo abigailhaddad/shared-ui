@@ -129,10 +129,13 @@ function buildMultiselectOptionsHtml(sortedValues, options = {}) {
 function wireMultiselectSearch(popover, focus = true) {
     const searchInput = popover.querySelector('.filter-options-search');
     if (!searchInput) return;
+    // Toggle Bootstrap's d-none rather than an inline display:none -- each
+    // option row is a .d-flex, whose "display: flex !important" beats any
+    // inline style, so typing in this box never visibly hid anything.
     searchInput.addEventListener('input', function() {
         const query = this.value.toLowerCase();
         popover.querySelectorAll('.filter-option').forEach(el => {
-            el.style.display = el.textContent.toLowerCase().includes(query) ? '' : 'none';
+            el.classList.toggle('d-none', !el.textContent.toLowerCase().includes(query));
         });
     });
     if (focus) searchInput.focus();
