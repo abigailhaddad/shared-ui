@@ -193,6 +193,12 @@ function wireMultiselectSearch(popover, focus = true) {
  *     filterBarId: 'filtersBar',
  *   });
  *   fm.init(dataTableInstance);
+ *
+ * @param {boolean} [options.persistFilters=true]  When false, filters are
+ *   never read from or written to sessionStorage -- a bare URL (no filter
+ *   params) always shows the unfiltered table instead of quietly carrying
+ *   over whatever was last applied in this tab. Default true: unchanged
+ *   behavior for existing pages.
  */
 class ColumnFilterManager {
     constructor(options) {
@@ -201,6 +207,7 @@ class ColumnFilterManager {
         this.filterBarId = options.filterBarId || null;
         this.syncURL = options.syncURL !== false;
         this.showCopyLinkButton = options.showCopyLinkButton !== false;
+        this.persistFilters = options.persistFilters !== false;
         this.table = null;
         this.activeFilters = {};
     }
@@ -376,6 +383,7 @@ class ColumnFilterManager {
             <div class="filter-popover">
                 <div class="filter-title">Filter: ${escapeHtml(col.name)}</div>
                 <input type="text" class="form-control form-control-sm filter-text-input mb-1" placeholder="Enter search term..." value="${escapeHtml(currentValue)}">
+                <div class="form-text text-muted small">Matches rows containing every word, in any order.</div>
                 <div class="d-flex gap-2 justify-content-end mt-3">
                     <button class="btn btn-sm btn-outline-secondary btn-filter-clear">Clear</button>
                     <button class="btn btn-sm btn-primary btn-filter-apply">Apply</button>
@@ -582,7 +590,26 @@ class ColumnFilterManager {
         this.table.draw();
     }
 
+    // Sets a multiselect column's filter to exactly `values`, replacing
+    // whatever was there -- same effect as the Apply button in
+    // _openMultiselectDialog, for callers that drive a filter from outside
+    // that dialog (e.g. clicking a bar in a "top N" chart).
+    setMultiselect(colIndex, values) {
+        const col = this.columns.find(c => c.index === colIndex);
+        if (!col) return;
+        if (values.length > 0) {
+            this.activeFilters[colIndex] = { type: 'multiselect', values, name: col.name };
+            this.table.column(colIndex).search(multiselectRegex(values), true, false, true).draw();
+        } else {
+            delete this.activeFilters[colIndex];
+            this.table.column(colIndex).search('').draw();
+        }
+        this._updateFilterBar();
+        if (this.syncURL) this._updateURL();
+    }
+
     _saveToSession() {
+        if (!this.persistFilters) return;
         try {
             const key = 'columnFilters_' + this.tableSelector;
             if (Object.keys(this.activeFilters).length > 0)
@@ -593,6 +620,7 @@ class ColumnFilterManager {
     }
 
     _loadFromSession() {
+        if (!this.persistFilters) return null;
         try {
             const key = 'columnFilters_' + this.tableSelector;
             const saved = sessionStorage.getItem(key);
@@ -746,10 +774,11 @@ function ensureFilterBar(tableSelector, filterBarId) {
  * @param {boolean} options.csvDownload     default true
  * @param {string}  options.csvFilename
  * @param {Array}   options.csvColumns      [{ header, getData }]
+ * @param {boolean} options.persistFilters  default true; see ColumnFilterManager
  * @returns {{ table, filterManager }}
  */
 function initDataTableWithFilters(options) {
-    const { tableSelector, tableOptions, fieldTypes, columns,
+    const { tableSelector, tableOptions, fieldTypes, columns, persistFilters,
             filterBarId, csvDownload = true, csvFilename = null, csvColumns = null } = options;
 
     const finalFilterBarId = filterBarId || 'filtersBar_' + Math.random().toString(36).substr(2, 9);
@@ -759,7 +788,7 @@ function initDataTableWithFilters(options) {
     const table = $(tableSelector).DataTable(tableOptions);
 
     const filterColumns = buildColumnFilters(fieldTypes, columns);
-    const filterManager = new ColumnFilterManager({ tableSelector, columns: filterColumns, filterBarId: finalFilterBarId });
+    const filterManager = new ColumnFilterManager({ tableSelector, columns: filterColumns, filterBarId: finalFilterBarId, persistFilters });
     filterManager.init(table);
 
     if (csvDownload) {
