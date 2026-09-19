@@ -24,6 +24,16 @@ function escapeRegex(str) {
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+// Column-search regex for a multiselect: matches a cell that IS one of the
+// chosen values, or a " | "-separated cell one of whose parts is. The option
+// list is built from exactly those (whole cells and their " | " parts), so a
+// value must not also match a cell that merely contains it -- real case:
+// choosing "Jennifer Pahlka" also matched every "Jennifer Pahlka (cited)" cell.
+function multiselectRegex(values) {
+    const alternatives = values.map(v => escapeRegex(v)).join('|');
+    return `(?:^|\\|)\\s*(?:${alternatives})\\s*(?:\\||$)`;
+}
+
 function highlightPhrases(text, phrases) {
     if (!text || !phrases || phrases.length === 0) return escapeHtml(text);
     let highlighted = escapeHtml(text);
@@ -309,7 +319,7 @@ class ColumnFilterManager {
             $popover.find('input[type="checkbox"]:checked').each(function() { checked.push($(this).val()); });
             if (checked.length > 0) {
                 self.activeFilters[colIndex] = { type: 'multiselect', values: checked, name: col.name };
-                self.table.column(colIndex).search(checked.map(v => escapeRegex(v)).join('|'), true, false, true).draw();
+                self.table.column(colIndex).search(multiselectRegex(checked), true, false, true).draw();
             } else {
                 delete self.activeFilters[colIndex];
                 self.table.column(colIndex).search('').draw();
@@ -577,7 +587,7 @@ class ColumnFilterManager {
             const idx = parseInt(colIndex);
             this.activeFilters[idx] = filter;
             if (filter.type === 'multiselect')
-                this.table.column(idx).search(filter.values.map(v => escapeRegex(v)).join('|'), true, false);
+                this.table.column(idx).search(multiselectRegex(filter.values), true, false);
             else if (filter.type !== 'range' && filter.type !== 'date')
                 this.table.column(idx).search(filter.value);
         });
@@ -607,7 +617,7 @@ class ColumnFilterManager {
                 const values = value.split(',').map(v => v.trim()).filter(v => v);
                 if (values.length) {
                     this.activeFilters[col.index] = { type: 'multiselect', values, name: col.name };
-                    this.table.column(col.index).search(values.map(v => escapeRegex(v)).join('|'), true, false);
+                    this.table.column(col.index).search(multiselectRegex(values), true, false);
                 }
             } else if (col.type === 'range') {
                 const parts = value.split('-');
