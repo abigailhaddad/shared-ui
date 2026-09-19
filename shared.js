@@ -109,16 +109,21 @@ function showToast(message, isError = false) {
 // Multiselect helpers (used by ColumnFilterManager)
 // ============================================
 
+// `counts` (optional Map value -> number) puts a row count at the right edge
+// of each option, so "how many of each?" is answered before picking one.
 function buildMultiselectOptionsHtml(sortedValues, options = {}) {
-    const { selectedValues = [], maxHeight = '300px', itemStyle = '', scrollHint = false } = options;
+    const { selectedValues = [], maxHeight = '300px', itemStyle = '', scrollHint = false, counts = null } = options;
     const labelStyle = itemStyle ? ` style="${itemStyle}"` : '';
+    const countHtml = val => counts && counts.has(val)
+        ? `<span class="ms-auto ps-3 text-muted small">${counts.get(val).toLocaleString()}</span>`
+        : '';
     return `
         <input type="text" class="form-control form-control-sm filter-options-search mb-2" placeholder="Search options...">
         <div class="filter-options" style="max-height: ${maxHeight}; overflow-y: auto;">
             ${sortedValues.map(val => `
                 <label class="filter-option d-flex align-items-center gap-2 px-2 py-1 rounded"${labelStyle}>
                     <input type="checkbox" value="${escapeHtml(val)}" ${selectedValues.includes(val) ? 'checked' : ''} class="form-check-input m-0">
-                    ${escapeHtml(val)}
+                    ${escapeHtml(val)}${countHtml(val)}
                 </label>
             `).join('')}
         </div>
@@ -267,26 +272,28 @@ class ColumnFilterManager {
 
     _openMultiselectDialog(col, colIndex) {
         const self = this;
-        const values = new Set();
+        // Row count per value, over the whole table (not the current filter),
+        // so the list and its numbers stay the same from one visit to the next.
+        const counts = new Map();
         this.table.column(colIndex).data().each(function(val) {
             const text = $('<div>').html(val).text().trim();
             if (text && text.includes(' | ')) {
                 text.split(' | ').forEach(item => {
                     const trimmed = item.trim();
-                    if (trimmed && trimmed !== '—') values.add(trimmed);
+                    if (trimmed && trimmed !== '—') counts.set(trimmed, (counts.get(trimmed) || 0) + 1);
                 });
             } else if (text && text !== '—') {
-                values.add(text);
+                counts.set(text, (counts.get(text) || 0) + 1);
             }
         });
 
-        const sortedValues = Array.from(values).sort(col.sortFn || undefined);
+        const sortedValues = Array.from(counts.keys()).sort(col.sortFn || undefined);
         const selectedValues = (this.activeFilters[colIndex] || {}).values || [];
 
         const content = `
             <div class="filter-popover">
                 <div class="filter-title">Filter: ${escapeHtml(col.name)}</div>
-                ${buildMultiselectOptionsHtml(sortedValues, { selectedValues, scrollHint: true })}
+                ${buildMultiselectOptionsHtml(sortedValues, { selectedValues, scrollHint: true, counts })}
                 <div class="d-flex gap-2 justify-content-end mt-3">
                     <button class="btn btn-sm btn-outline-secondary btn-filter-clear">Clear</button>
                     <button class="btn btn-sm btn-primary btn-filter-apply">Apply</button>
