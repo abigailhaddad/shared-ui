@@ -111,21 +111,45 @@ function showToast(message, isError = false) {
 
 // `counts` (optional Map value -> number) puts a row count at the right edge
 // of each option, so "how many of each?" is answered before picking one.
+//
+// `groupFn` (optional, value -> { group, label }) nests options under a
+// heading: every value with the same `group` is listed beneath it, showing
+// its `label` instead of the full value. The checkbox still carries the
+// full value, so filtering, chips and URLs don't know about the grouping.
+// Case this exists for: an Author filter where each person is a heading
+// with "authored" and "cited" beneath it, either or both tickable.
 function buildMultiselectOptionsHtml(sortedValues, options = {}) {
-    const { selectedValues = [], maxHeight = '300px', itemStyle = '', scrollHint = false, counts = null } = options;
+    const { selectedValues = [], maxHeight = '300px', itemStyle = '', scrollHint = false, counts = null, groupFn = null } = options;
     const labelStyle = itemStyle ? ` style="${itemStyle}"` : '';
     const countHtml = val => counts && counts.has(val)
         ? `<span class="ms-auto ps-3 text-muted small">${counts.get(val).toLocaleString()}</span>`
         : '';
+    const optionHtml = (val, label, extraClass = '') => `
+        <label class="filter-option d-flex align-items-center gap-2 px-2 py-1 rounded ${extraClass}"${labelStyle}>
+            <input type="checkbox" value="${escapeHtml(val)}" ${selectedValues.includes(val) ? 'checked' : ''} class="form-check-input m-0">
+            ${escapeHtml(label)}${countHtml(val)}
+        </label>`;
+
+    let optionsHtml;
+    if (groupFn) {
+        const groups = new Map();
+        sortedValues.forEach(val => {
+            const { group, label } = groupFn(val);
+            if (!groups.has(group)) groups.set(group, []);
+            groups.get(group).push({ val, label });
+        });
+        optionsHtml = Array.from(groups.entries()).map(([group, members]) => `
+            <div class="filter-option-group">
+                <div class="px-2 pt-2 fw-semibold small">${escapeHtml(group)}</div>
+                ${members.map(({ val, label }) => optionHtml(val, label, 'ps-4')).join('')}
+            </div>`).join('');
+    } else {
+        optionsHtml = sortedValues.map(val => optionHtml(val, val)).join('');
+    }
     return `
         <input type="text" class="form-control form-control-sm filter-options-search mb-2" placeholder="Search options...">
         <div class="filter-options" style="max-height: ${maxHeight}; overflow-y: auto;">
-            ${sortedValues.map(val => `
-                <label class="filter-option d-flex align-items-center gap-2 px-2 py-1 rounded"${labelStyle}>
-                    <input type="checkbox" value="${escapeHtml(val)}" ${selectedValues.includes(val) ? 'checked' : ''} class="form-check-input m-0">
-                    ${escapeHtml(val)}${countHtml(val)}
-                </label>
-            `).join('')}
+            ${optionsHtml}
         </div>
         ${scrollHint ? '<div class="text-center text-muted small py-1">↓ Scroll for more</div>' : ''}
     `;
@@ -137,9 +161,13 @@ function wireMultiselectSearch(popover, focus = true) {
     // Toggle Bootstrap's d-none rather than an inline display:none -- each
     // option row is a .d-flex, whose "display: flex !important" beats any
     // inline style, so typing in this box never visibly hid anything.
+    // Grouped options are matched and hidden as a whole group (heading plus
+    // its members), so typing a name keeps both of that person's rows.
     searchInput.addEventListener('input', function() {
         const query = this.value.toLowerCase();
-        popover.querySelectorAll('.filter-option').forEach(el => {
+        const groups = popover.querySelectorAll('.filter-option-group');
+        const rows = groups.length ? groups : popover.querySelectorAll('.filter-option');
+        rows.forEach(el => {
             el.classList.toggle('d-none', !el.textContent.toLowerCase().includes(query));
         });
     });
@@ -293,7 +321,7 @@ class ColumnFilterManager {
         const content = `
             <div class="filter-popover">
                 <div class="filter-title">Filter: ${escapeHtml(col.name)}</div>
-                ${buildMultiselectOptionsHtml(sortedValues, { selectedValues, scrollHint: true, counts })}
+                ${buildMultiselectOptionsHtml(sortedValues, { selectedValues, scrollHint: true, counts, groupFn: col.groupFn || null })}
                 <div class="d-flex gap-2 justify-content-end mt-3">
                     <button class="btn btn-sm btn-outline-secondary btn-filter-clear">Clear</button>
                     <button class="btn btn-sm btn-primary btn-filter-apply">Apply</button>
@@ -667,7 +695,9 @@ class ColumnFilterManager {
  * Build ColumnFilterManager column config from a fieldTypes map.
  *
  * @param {Object} fieldTypes  { fieldName: 'multiselect'|'text'|'range' }
- * @param {Array}  columns     [{ field, label, index? }]
+ * @param {Array}  columns     [{ field, label, index?, sortFn?, groupFn? }]
+ *                             groupFn: value -> { group, label }, nests a
+ *                             multiselect's options under group headings
  * @returns {Array} config for ColumnFilterManager
  */
 function buildColumnFilters(fieldTypes, columns) {
@@ -677,6 +707,7 @@ function buildColumnFilters(fieldTypes, columns) {
         if (filterType) {
             const entry = { index: col.index !== undefined ? col.index : i, name: col.label, type: filterType };
             if (col.sortFn) entry.sortFn = col.sortFn;
+            if (col.groupFn) entry.groupFn = col.groupFn;
             result.push(entry);
         }
     });
