@@ -1,6 +1,6 @@
 # shared-ui
 
-Reusable DataTables filtering, modals, CSV export, and expandable rows.  
+Reusable DataTables filtering, modals, and CSV export.  
 Requires Bootstrap 5.3, jQuery, and DataTables.
 
 ## Usage
@@ -57,11 +57,9 @@ Full list is at the top of `shared.css`. Lighter/darker variants (`--color-accen
 | `createModal()` / `closeModal()` | Bootstrap 5.3 modal factory |
 | `DetailModal` | Bootstrap modal wrapper for detail views |
 | `StatsModalManager` | Modal for stats/summary popups |
-| `setupDataTableExpandHandlers()` | Expand/collapse child rows in a DataTable |
-| `createExpandableParentRow()` | Build a parent row element with expand control |
 | `downloadTableAsCSV()` / `addCsvDownloadButton()` | CSV export of filtered rows |
 | `showToast()` | Slide-up toast notification |
-| `escapeHtml()`, `highlightPhrases()` | DOM utilities |
+| `escapeHtml()` | DOM utility |
 
 ### Filter persistence
 
@@ -78,6 +76,16 @@ initDataTableWithFilters({
   columns: [{ field: 'status', label: 'Status' }],
   persistFilters: false,
 });
+```
+
+## Saved filters on single-page apps
+
+Filters are saved per tab in sessionStorage under the table selector. If one page
+renders different data into the same table id (hash routes, say), pass a
+`storageKey` per view so one view's filters never apply to another's:
+
+```js
+initDataTableWithFilters({ tableSelector: '#bills', storageKey: 'bills:' + currentIssue, /* ... */ });
 ```
 
 ## Quick search

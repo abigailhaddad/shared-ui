@@ -1,4 +1,4 @@
-/* shared-ui — Filter chips, filter dialogs, DataTables overrides, expandable rows.
+/* shared-ui — Filter chips, filter dialogs, DataTables overrides.
    Requires Bootstrap 5.3. Override the :root variables below for theming. */
 
 /* ============================================
@@ -166,48 +166,6 @@
     text-transform: uppercase;
     letter-spacing: 0.3px;
 }
-
-/* ============================================
-   Expandable table rows
-   ============================================ */
-.parent-row { cursor: pointer; }
-.parent-row:hover { background: var(--sui-bg-alt) !important; }
-
-.parent-row td.expand-control {
-    text-align: center;
-    color: var(--sui-accent);
-    font-size: 14px;
-}
-
-.expand-icon {
-    transition: transform 0.2s ease;
-    display: inline-block;
-}
-
-.expand-icon.expanded { transform: rotate(90deg); }
-
-.child-table {
-    width: 100%;
-    margin: 8px 0;
-    background: var(--sui-bg-alt);
-    border-collapse: collapse;
-}
-
-.child-table thead tr { background: #e2e8f0; }
-.child-table th { padding: 8px; text-align: left; font-size: 11px; font-weight: 600; color: #555; }
-.child-table td { padding: 8px; font-size: 12px; border-bottom: 1px solid #eee; }
-
-.child-doc-row { cursor: pointer; }
-.child-doc-row:hover { background: var(--sui-bg-alt); }
-
-/* ============================================
-   Text highlighting
-   ============================================ */
-.highlight          { background: #fef08a; }
-.highlight-must     { background: #fef08a; }
-.highlight-should-0 { background: #86efac; }
-.highlight-should-1 { background: #93c5fd; }
-.highlight-should-2 { background: #d8b4fe; }
 
 /* ============================================
    Toast (simpler than Bootstrap's toast)

@@ -1,5 +1,5 @@
 /**
- * shared-ui — DataTables filtering, CSV export, expandable rows.
+ * shared-ui — DataTables filtering, modals, CSV export.
  * Requires: jQuery, Bootstrap 5.3, DataTables.
  */
 
@@ -32,17 +32,6 @@ function escapeRegex(str) {
 function multiselectRegex(values) {
     const alternatives = values.map(v => escapeRegex(v)).join('|');
     return `(?:^|\\|)\\s*(?:${alternatives})\\s*(?:\\||$)`;
-}
-
-function highlightPhrases(text, phrases) {
-    if (!text || !phrases || phrases.length === 0) return escapeHtml(text);
-    let highlighted = escapeHtml(text);
-    [...phrases].sort((a, b) => b.length - a.length).forEach(phrase => {
-        const esc = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        highlighted = highlighted.replace(new RegExp(`\\b${esc}\\b|${esc}`, 'gi'),
-            match => `<span class="highlight">${match}</span>`);
-    });
-    return highlighted;
 }
 
 // ============================================
@@ -208,6 +197,10 @@ class ColumnFilterManager {
         this.syncURL = options.syncURL !== false;
         this.showCopyLinkButton = options.showCopyLinkButton !== false;
         this.persistFilters = options.persistFilters !== false;
+        // Where saved filters live in sessionStorage. Defaults to the table selector,
+        // which collides when one page renders different data into the same table id
+        // (a single-page app with routes); pass a key per view to keep them apart.
+        this.storageKey = 'columnFilters_' + (options.storageKey || this.tableSelector);
         // Opt-in: a search box in the filter bar that sets the text filter on this
         // column (typically a hidden "All Columns" column). It is the same filter as
         // Add Filter -> that column, so the chip, URL and CSV stay in step with it.
@@ -662,7 +655,7 @@ class ColumnFilterManager {
     _saveToSession() {
         if (!this.persistFilters) return;
         try {
-            const key = 'columnFilters_' + this.tableSelector;
+            const key = this.storageKey;
             if (Object.keys(this.activeFilters).length > 0)
                 sessionStorage.setItem(key, JSON.stringify(this.activeFilters));
             else
@@ -673,7 +666,7 @@ class ColumnFilterManager {
     _loadFromSession() {
         if (!this.persistFilters) return null;
         try {
-            const key = 'columnFilters_' + this.tableSelector;
+            const key = this.storageKey;
             const saved = sessionStorage.getItem(key);
             return saved ? JSON.parse(saved) : null;
         } catch (e) { return null; }
@@ -780,6 +773,12 @@ class ColumnFilterManager {
  * @returns {Array} config for ColumnFilterManager
  */
 function buildColumnFilters(fieldTypes, columns) {
+    // An "All Columns" entry is listed first but is a hidden column at the end, so
+    // with it present the array position of every other entry is off by one, and a
+    // missing index silently filters the wrong column. Refuse that combination.
+    if (columns.some(c => c.field === 'allcolumns') && columns.some(c => c.index === undefined))
+        throw new Error('buildColumnFilters: with an allcolumns entry every column needs an explicit index (missing: ' +
+            columns.filter(c => c.index === undefined).map(c => c.field).join(', ') + ')');
     const result = [];
     columns.forEach((col, i) => {
         const filterType = fieldTypes[col.field];
@@ -829,7 +828,7 @@ function ensureFilterBar(tableSelector, filterBarId) {
  * @returns {{ table, filterManager }}
  */
 function initDataTableWithFilters(options) {
-    const { tableSelector, tableOptions, fieldTypes, columns, persistFilters,
+    const { tableSelector, tableOptions, fieldTypes, columns, persistFilters, storageKey,
             quickSearchColumn, quickSearchPlaceholder, filterBarId, csvDownload = true, csvFilename = null, csvColumns = null } = options;
 
     const finalFilterBarId = filterBarId || 'filtersBar_' + Math.random().toString(36).substr(2, 9);
@@ -840,7 +839,7 @@ function initDataTableWithFilters(options) {
 
     const filterColumns = buildColumnFilters(fieldTypes, columns);
     const filterManager = new ColumnFilterManager({ tableSelector, columns: filterColumns, filterBarId: finalFilterBarId, persistFilters,
-                                                    quickSearchColumn, quickSearchPlaceholder });
+                                                    storageKey, quickSearchColumn, quickSearchPlaceholder });
     filterManager.init(table);
 
     if (csvDownload) {
@@ -923,96 +922,4 @@ function addCsvDownloadButton(options) {
     btn.addEventListener('click', () => downloadTableAsCSV({ table, filename, columns }));
     container.appendChild(btn);
     return btn;
-}
-
-// ============================================
-// Expandable DataTable rows
-// ============================================
-
-/**
- * Set up expand/collapse for DataTable rows using row().child() API.
- *
- * @param {Object}   options
- * @param {string}   options.tableSelector
- * @param {Function} options.buildChildContent   (parsedData) => HTML string
- * @param {string}   options.childDataAttr       default: 'data-children'
- * @param {string}   options.childRowClass       default: 'child-doc-row'
- * @param {Function} options.onChildRowClick     optional callback(rowData)
- */
-function setupDataTableExpandHandlers(options) {
-    const { tableSelector, buildChildContent,
-            childDataAttr = 'data-children',
-            childRowClass = 'child-doc-row',
-            onChildRowClick = null } = options;
-
-    const table = $(tableSelector);
-    const dt = table.DataTable();
-
-    table.on('click', 'td.expand-control', function(e) {
-        e.stopPropagation();
-        const tr = $(this).closest('tr');
-        const row = dt.row(tr);
-        const expandIcon = tr.find('.expand-icon');
-
-        if (row.child.isShown()) {
-            row.child.hide();
-            tr.removeClass('shown');
-            expandIcon.removeClass('expanded');
-        } else {
-            const childrenData = tr.attr(childDataAttr);
-            if (childrenData) {
-                try {
-                    row.child(buildChildContent(JSON.parse(childrenData))).show();
-                    tr.addClass('shown');
-                    expandIcon.addClass('expanded');
-                } catch (e) { console.error('Error parsing children data:', e); }
-            }
-        }
-    });
-
-    if (onChildRowClick && childRowClass) {
-        table.on('click', '.' + childRowClass, function(e) {
-            if (e.target.tagName === 'A') return;
-            const dataAttr = $(this).attr('data-doc') || $(this).attr('data-row');
-            if (dataAttr) {
-                try { onChildRowClick(JSON.parse(dataAttr)); }
-                catch (e) { console.error('Error parsing row data:', e); }
-            }
-        });
-        table.on('mouseenter', '.' + childRowClass, function() { $(this).css('background', '#f0f4f8'); });
-        table.on('mouseleave', '.' + childRowClass, function() { $(this).css('background', ''); });
-    }
-}
-
-function createExpandableParentRow(options) {
-    const { caseDisplayName, rowData, childData, cells } = options;
-    const parentRow = document.createElement('tr');
-    parentRow.className = 'parent-row';
-    parentRow.setAttribute('data-case-name', caseDisplayName);
-    if (rowData) parentRow.setAttribute('data-case-data', JSON.stringify(rowData));
-    if (childData) parentRow.setAttribute('data-children', JSON.stringify(childData));
-
-    const expandCell = document.createElement('td');
-    expandCell.className = 'expand-control';
-    const expandSpan = document.createElement('span');
-    expandSpan.className = 'expand-icon';
-    expandSpan.textContent = '▶';
-    expandCell.appendChild(expandSpan);
-    parentRow.appendChild(expandCell);
-
-    cells.forEach(cellConfig => {
-        const cell = document.createElement('td');
-        if (typeof cellConfig === 'string') {
-            cell.textContent = cellConfig;
-        } else if (cellConfig.element) {
-            cell.appendChild(cellConfig.element);
-            if (cellConfig.style) cell.style.cssText = cellConfig.style;
-        } else {
-            cell.textContent = cellConfig.content || '';
-            if (cellConfig.style) cell.style.cssText = cellConfig.style;
-        }
-        parentRow.appendChild(cell);
-    });
-
-    return parentRow;
 }
