@@ -43,6 +43,11 @@
     gap: 6px;
 }
 
+.sui-quick-search {
+    width: 16rem;
+    max-width: 100%;
+}
+
 .filters-bar-empty {
     color: #94a3b8;
     font-size: 13px;

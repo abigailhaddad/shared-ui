@@ -51,6 +51,7 @@ Full list is at the top of `shared.css`. Lighter/darker variants (`--color-accen
 | Class / Function | What it does |
 |---|---|
 | `ColumnFilterManager` | Multiselect / text / range column filters with URL sync and filter chips |
+| `ColumnFilterManager#setText(colIndex, value)` | Sets a text column's filter programmatically; an empty value clears it |
 | `ColumnFilterManager#setMultiselect(colIndex, values)` | Sets a multiselect column's filter programmatically (e.g. from a chart click), replacing any existing filter on that column |
 | `initDataTableWithFilters()` | One-call setup: DataTable + filters + CSV button |
 | `createModal()` / `closeModal()` | Bootstrap 5.3 modal factory |
@@ -76,6 +77,22 @@ initDataTableWithFilters({
   fieldTypes: { status: 'multiselect' },
   columns: [{ field: 'status', label: 'Status' }],
   persistFilters: false,
+});
+```
+
+## Quick search
+
+Pass `quickSearchColumn` (a column index, usually a hidden "All Columns" column) to
+put a search box in the filter bar. Typing sets the same text filter as Add Filter on
+that column, so it shows as a chip, lands in the URL and Copy Link, and applies to the
+CSV. Off unless you pass it.
+
+```js
+initDataTableWithFilters({
+  tableSelector: '#bills',
+  quickSearchColumn: 11,
+  quickSearchPlaceholder: 'Search bills…',
+  // ...
 });
 ```
 

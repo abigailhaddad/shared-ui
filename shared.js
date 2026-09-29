@@ -208,6 +208,11 @@ class ColumnFilterManager {
         this.syncURL = options.syncURL !== false;
         this.showCopyLinkButton = options.showCopyLinkButton !== false;
         this.persistFilters = options.persistFilters !== false;
+        // Opt-in: a search box in the filter bar that sets the text filter on this
+        // column (typically a hidden "All Columns" column). It is the same filter as
+        // Add Filter -> that column, so the chip, URL and CSV stay in step with it.
+        this.quickSearchColumn = options.quickSearchColumn ?? null;
+        this.quickSearchPlaceholder = options.quickSearchPlaceholder || 'Search…';
         this.table = null;
         this.activeFilters = {};
     }
@@ -250,6 +255,24 @@ class ColumnFilterManager {
         if (!filterBar) return;
 
         const buttonContainer = document.getElementById('toolbarButtons') || filterBar;
+
+        if (this.quickSearchColumn !== null && !buttonContainer.querySelector('.sui-quick-search')) {
+            const box = document.createElement('input');
+            box.type = 'search';
+            box.className = 'form-control form-control-sm sui-quick-search';
+            box.placeholder = this.quickSearchPlaceholder;
+            box.setAttribute('aria-label', this.quickSearchPlaceholder);
+            let timer = null;
+            box.addEventListener('input', () => {
+                clearTimeout(timer);
+                timer = setTimeout(() => this.setText(this.quickSearchColumn, box.value), 300);
+            });
+            box.addEventListener('keydown', e => {
+                if (e.key === 'Enter') { clearTimeout(timer); this.setText(this.quickSearchColumn, box.value); }
+            });
+            buttonContainer.insertBefore(box, buttonContainer.firstChild);
+            this._quickSearchBox = box;
+        }
 
         let addBtn = buttonContainer.querySelector('.sui-add-filter-btn');
         if (!addBtn) {
@@ -531,6 +554,12 @@ class ColumnFilterManager {
         if (!filterBar) return;
 
         filterBar.querySelectorAll('.filter-chip.column-filter-chip').forEach(c => c.remove());
+        // Keep the quick-search box showing whatever its column is filtered by, however
+        // that filter was set (URL, session, the dialog, a removed chip).
+        if (this._quickSearchBox && document.activeElement !== this._quickSearchBox) {
+            const f = this.activeFilters[this.quickSearchColumn];
+            this._quickSearchBox.value = f ? f.value : '';
+        }
         const existingLabel = filterBar.querySelector('.bar-label.filter-label');
         if (existingLabel) existingLabel.remove();
 
@@ -541,7 +570,10 @@ class ColumnFilterManager {
             const label = document.createElement('span');
             label.className = 'bar-label filter-label';
             label.textContent = 'Filtered by:';
-            filterBar.insertBefore(label, filterBar.firstChild);
+            // After the quick-search box when there is one: the label introduces the
+            // chips, and in front of the box it read as if the box were a filter value.
+            const box = this._quickSearchBox && this._quickSearchBox.parentNode === filterBar ? this._quickSearchBox : null;
+            filterBar.insertBefore(label, box ? box.nextSibling : filterBar.firstChild);
 
             Object.entries(this.activeFilters).forEach(([colIndex, filter]) => {
                 const chip = document.createElement('div');
@@ -600,6 +632,25 @@ class ColumnFilterManager {
         if (values.length > 0) {
             this.activeFilters[colIndex] = { type: 'multiselect', values, name: col.name };
             this.table.column(colIndex).search(multiselectRegex(values), true, false, true).draw();
+        } else {
+            delete this.activeFilters[colIndex];
+            this.table.column(colIndex).search('').draw();
+        }
+        this._updateFilterBar();
+        if (this.syncURL) this._updateURL();
+    }
+
+    // Sets a text column's filter to `value` (empty clears it) -- same effect as
+    // Apply in the text dialog. The quick-search box drives this.
+    setText(colIndex, value) {
+        const col = this.columns.find(c => c.index === colIndex);
+        if (!col) return;
+        value = String(value || '').trim();
+        const current = this.activeFilters[colIndex];
+        if ((current ? current.value : '') === value) return;
+        if (value) {
+            this.activeFilters[colIndex] = { type: 'text', value, name: col.name };
+            this.table.column(colIndex).search(value).draw();
         } else {
             delete this.activeFilters[colIndex];
             this.table.column(colIndex).search('').draw();
@@ -779,7 +830,7 @@ function ensureFilterBar(tableSelector, filterBarId) {
  */
 function initDataTableWithFilters(options) {
     const { tableSelector, tableOptions, fieldTypes, columns, persistFilters,
-            filterBarId, csvDownload = true, csvFilename = null, csvColumns = null } = options;
+            quickSearchColumn, quickSearchPlaceholder, filterBarId, csvDownload = true, csvFilename = null, csvColumns = null } = options;
 
     const finalFilterBarId = filterBarId || 'filtersBar_' + Math.random().toString(36).substr(2, 9);
     ensureFilterBar(tableSelector, finalFilterBarId);
@@ -788,7 +839,8 @@ function initDataTableWithFilters(options) {
     const table = $(tableSelector).DataTable(tableOptions);
 
     const filterColumns = buildColumnFilters(fieldTypes, columns);
-    const filterManager = new ColumnFilterManager({ tableSelector, columns: filterColumns, filterBarId: finalFilterBarId, persistFilters });
+    const filterManager = new ColumnFilterManager({ tableSelector, columns: filterColumns, filterBarId: finalFilterBarId, persistFilters,
+                                                    quickSearchColumn, quickSearchPlaceholder });
     filterManager.init(table);
 
     if (csvDownload) {
